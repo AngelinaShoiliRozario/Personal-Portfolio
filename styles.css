@@ -460,13 +460,30 @@ section {
     font-size: 0.95rem;
 }
 
-/* ===== 3D Cube ===== */
+/* ===== Globe Container ===== */
 .about-visual {
     display: flex;
     justify-content: center;
     align-items: center;
     perspective: 1500px;
     padding: 3rem;
+}
+
+.globe-container {
+    width: 400px;
+    height: 400px;
+    position: relative;
+    filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.4));
+}
+
+#globe-canvas {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+}
+
+#globe-canvas:active {
+    cursor: grabbing;
 }
 
 .tech-cube {
@@ -1233,6 +1250,11 @@ section {
 
     .about-visual {
         padding: 2rem;
+    }
+
+    .globe-container {
+        width: 300px;
+        height: 300px;
     }
 
     .tech-cube {

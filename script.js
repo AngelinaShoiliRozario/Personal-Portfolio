@@ -2,6 +2,12 @@
 let scene, camera, renderer, particles, particleSystem;
 let mouse = { x: 0, y: 0 };
 
+// Globe variables
+let globeScene, globeCamera, globeRenderer, globe;
+let isDragging = false;
+let previousMousePosition = { x: 0, y: 0 };
+let globeRotation = { x: 0, y: 0 };
+
 function initThreeJS() {
     const canvas = document.getElementById('three-canvas');
 
@@ -130,11 +136,248 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Resize globe
+    const globeCanvas = document.getElementById('globe-canvas');
+    if (globeCanvas && globeRenderer && globeCamera) {
+        const container = globeCanvas.parentElement;
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        globeCamera.aspect = width / height;
+        globeCamera.updateProjectionMatrix();
+        globeRenderer.setSize(width, height);
+    }
 }
 
 function onMouseMove(event) {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+}
+
+// ===== Globe Initialization =====
+function initGlobe() {
+    const canvas = document.getElementById('globe-canvas');
+    if (!canvas) return;
+
+    const container = canvas.parentElement;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    // Scene setup
+    globeScene = new THREE.Scene();
+
+    // Camera setup
+    globeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    globeCamera.position.z = 300;
+
+    // Renderer setup
+    globeRenderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        alpha: true,
+        antialias: true
+    });
+    globeRenderer.setSize(width, height);
+    globeRenderer.setPixelRatio(window.devicePixelRatio);
+
+    // Create globe
+    createGlobe();
+
+    // Add lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    globeScene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0x00f0ff, 0.8);
+    directionalLight.position.set(5, 3, 5);
+    globeScene.add(directionalLight);
+
+    const backLight = new THREE.DirectionalLight(0x7000ff, 0.4);
+    backLight.position.set(-5, -3, -5);
+    globeScene.add(backLight);
+
+    // Mouse interaction
+    canvas.addEventListener('mousedown', onGlobeMouseDown);
+    canvas.addEventListener('mousemove', onGlobeMouseMove);
+    canvas.addEventListener('mouseup', onGlobeMouseUp);
+    canvas.addEventListener('mouseleave', onGlobeMouseUp);
+
+    // Touch interaction for mobile
+    canvas.addEventListener('touchstart', onGlobeTouchStart);
+    canvas.addEventListener('touchmove', onGlobeTouchMove);
+    canvas.addEventListener('touchend', onGlobeTouchEnd);
+
+    // Start animation
+    animateGlobe();
+}
+
+function createGlobe() {
+    // Create sphere geometry
+    const geometry = new THREE.SphereGeometry(100, 64, 64);
+
+    // Create wireframe
+    const wireframeGeometry = new THREE.WireframeGeometry(geometry);
+    const wireframeMaterial = new THREE.LineBasicMaterial({
+        color: 0x00f0ff,
+        transparent: true,
+        opacity: 0.3,
+        linewidth: 1
+    });
+    const wireframe = new THREE.LineSegments(wireframeGeometry, wireframeMaterial);
+
+    // Create main globe material with gradient
+    const material = new THREE.MeshPhongMaterial({
+        color: 0x1a1a2e,
+        emissive: 0x0a0a1e,
+        specular: 0x00f0ff,
+        shininess: 30,
+        transparent: true,
+        opacity: 0.8,
+        wireframe: false
+    });
+
+    // Create globe mesh
+    globe = new THREE.Group();
+    const sphereMesh = new THREE.Mesh(geometry, material);
+    globe.add(sphereMesh);
+    globe.add(wireframe);
+
+    // Add particles on globe surface
+    addGlobeParticles(globe);
+
+    // Add glowing atmosphere
+    const atmosphereGeometry = new THREE.SphereGeometry(105, 64, 64);
+    const atmosphereMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00f0ff,
+        transparent: true,
+        opacity: 0.1,
+        side: THREE.BackSide
+    });
+    const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+    globe.add(atmosphere);
+
+    globeScene.add(globe);
+
+    // Initial rotation
+    globe.rotation.x = 0.3;
+    globe.rotation.y = 0.5;
+}
+
+function addGlobeParticles(globeGroup) {
+    const particleCount = 300;
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+
+    for (let i = 0; i < particleCount; i++) {
+        // Random point on sphere surface
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const radius = 101;
+
+        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+        positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+        positions[i * 3 + 2] = radius * Math.cos(phi);
+
+        // Cyan to purple gradient
+        const t = Math.random();
+        colors[i * 3] = t * 0.44; // R
+        colors[i * 3 + 1] = (1 - t) * 0.94; // G
+        colors[i * 3 + 2] = 1; // B
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const material = new THREE.PointsMaterial({
+        size: 2,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    globeGroup.add(particles);
+}
+
+function animateGlobe() {
+    requestAnimationFrame(animateGlobe);
+
+    if (globe) {
+        // Auto-rotate when not dragging
+        if (!isDragging) {
+            globe.rotation.y += 0.002;
+        }
+
+        // Apply drag rotation
+        globe.rotation.x += globeRotation.x;
+        globe.rotation.y += globeRotation.y;
+
+        // Damping
+        globeRotation.x *= 0.95;
+        globeRotation.y *= 0.95;
+    }
+
+    globeRenderer.render(globeScene, globeCamera);
+}
+
+// Globe mouse events
+function onGlobeMouseDown(e) {
+    isDragging = true;
+    previousMousePosition = {
+        x: e.clientX,
+        y: e.clientY
+    };
+}
+
+function onGlobeMouseMove(e) {
+    if (!isDragging) return;
+
+    const deltaX = e.clientX - previousMousePosition.x;
+    const deltaY = e.clientY - previousMousePosition.y;
+
+    globeRotation.y = deltaX * 0.005;
+    globeRotation.x = deltaY * 0.005;
+
+    previousMousePosition = {
+        x: e.clientX,
+        y: e.clientY
+    };
+}
+
+function onGlobeMouseUp() {
+    isDragging = false;
+}
+
+// Globe touch events for mobile
+function onGlobeTouchStart(e) {
+    isDragging = true;
+    const touch = e.touches[0];
+    previousMousePosition = {
+        x: touch.clientX,
+        y: touch.clientY
+    };
+}
+
+function onGlobeTouchMove(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - previousMousePosition.x;
+    const deltaY = touch.clientY - previousMousePosition.y;
+
+    globeRotation.y = deltaX * 0.005;
+    globeRotation.x = deltaY * 0.005;
+
+    previousMousePosition = {
+        x: touch.clientX,
+        y: touch.clientY
+    };
+}
+
+function onGlobeTouchEnd() {
+    isDragging = false;
 }
 
 // ===== Navigation =====
@@ -470,6 +713,9 @@ function isMobileDevice() {
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Three.js background
     initThreeJS();
+
+    // Initialize globe
+    initGlobe();
 
     // Initialize card tilt effect
     initCardTilt();
